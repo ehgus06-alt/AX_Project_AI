@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>삼성전자 (005930) — 주가 분석 대시보드</title>
+  <meta name="description" content="삼성전자 주가 차트, 기술적 분석, 펀더멘탈, 거시환경, 커뮤니티 반응, 뉴스, 매수/매도 추천 모델 대시보드" />
+
+  <!-- ── Chart.js: LOCAL 우선, CDN fallback ── -->
+  <script>
+    // Try local first to avoid tracking prevention issues
+    function loadScript(src, onErr) {
+      var s = document.createElement('script');
+      s.src = src;
+      s.onerror = onErr;
+      document.head.appendChild(s);
+    }
+  </script>
+  <script src="js/lib/chart.umd.min.js"
+    onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js'"></script>
+  <script src="js/lib/chartjs-adapter-date-fns.bundle.min.js"
+    onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js'"></script>
+  <script src="js/lib/chartjs-chart-financial.min.js"
+    onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.2.1/dist/chartjs-chart-financial.min.js'"></script>
+
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- ── Header ──────────────────────────────────────────────── -->
+  <header class="app-header">
+    <div class="stock-logo">📱</div>
+    <div class="stock-info">
+      <div class="stock-name">삼성전자</div>
+      <div class="stock-ticker">KRX: 005930 · KOSPI</div>
+    </div>
+    <div class="stock-price-header">
+      <div id="stockPriceHeader"><span class="header-price">로딩 중...</span></div>
+      <div class="last-updated">
+        <span id="dataSourceBadge">🔄 데이터 로딩</span>
+        &nbsp;·&nbsp; 2026-03-14 기준
+      </div>
+    </div>
+  </header>
+
+  <!-- ── Navigation ──────────────────────────────────────────── -->
+  <nav class="nav-tabs" role="tablist">
+    <button class="nav-tab" data-tab="chart"       role="tab">📈 주가 차트</button>
+    <button class="nav-tab" data-tab="technical"   role="tab">🔬 기술적 분석</button>
+    <button class="nav-tab" data-tab="fundamental" role="tab">💼 펀더멘탈</button>
+    <button class="nav-tab" data-tab="macro"       role="tab">🌐 거시 환경</button>
+    <button class="nav-tab" data-tab="community"   role="tab">💬 커뮤니티</button>
+    <button class="nav-tab" data-tab="news"        role="tab">📰 뉴스</button>
+    <button class="nav-tab" data-tab="signal"      role="tab">🎯 매수/매도 의견</button>
+  </nav>
+
+  <!-- ════════════════════════════════════════════════════════════
+       TAB 1 — 주가 차트
+  ════════════════════════════════════════════════════════════ -->
+  <div id="tab-chart" class="tab-pane">
+    <div class="panel">
+      <div class="price-strip">
+        <span id="currentPrice">--</span>
+        <span id="priceChange" class="price-change">--</span>
+        <span id="priceDate"></span>
+      </div>
+      <div class="chart-controls">
+        <button class="chart-btn period-btn" data-period="1W">1주</button>
+        <button class="chart-btn period-btn" data-period="1M">1개월</button>
+        <button class="chart-btn period-btn active" data-period="3M">3개월</button>
+        <button class="chart-btn period-btn" data-period="6M">6개월</button>
+        <button class="chart-btn period-btn" data-period="1Y">1년</button>
+        <div style="margin-left:auto; display:flex; gap:6px;">
+          <button class="chart-btn active" id="chartTypeCandle">🕯 캔들</button>
+          <button class="chart-btn" id="chartTypeLine">📉 라인</button>
+        </div>
+      </div>
+      <div class="chart-wrap-lg">
+        <canvas id="priceChart"></canvas>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">거래량</div>
+      <div class="chart-wrap-sm">
+        <canvas id="volumeChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════
+       TAB 2 — 기술적 분석
+  ════════════════════════════════════════════════════════════ -->
+  <div id="tab-technical" class="tab-pane">
+    <div class="indicators-grid">
+      <div class="indicator-card" id="rsiCard">
+        <div class="indicator-label">RSI (14)</div>
+        <div class="indicator-value">—</div>
+        <div class="indicator-signal neutral">계산 중</div>
+      </div>
+      <div class="indicator-card" id="macdCard">
+        <div class="indicator-label">MACD 히스토그램</div>
+        <div class="indicator-value">—</div>
+        <div class="indicator-signal neutral">계산 중</div>
+      </div>
+      <div class="indicator-card" id="bbCard">
+        <div class="indicator-label">볼린저 밴드 위치</div>
+        <div class="indicator-value">—</div>
+        <div class="indicator-signal neutral">계산 중</div>
+      </div>
+      <div class="indicator-card" id="maCard">
+        <div class="indicator-label">이동평균 위 개수</div>
+        <div class="indicator-value">—</div>
+        <div class="indicator-signal neutral">계산 중</div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">RSI (14일)</div>
+      <div class="chart-wrap"><canvas id="rsiChart"></canvas></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">MACD (12, 26, 9)</div>
+      <div class="chart-wrap"><canvas id="macdChart"></canvas></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">볼린저 밴드 (20일, 2σ)</div>
+      <div class="chart-wrap"><canvas id="bollingerChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════
+       TAB 3 — 펀더멘탈
+  ════════════════════════════════════════════════════════════ -->
+  <div id="tab-fundamental" class="tab-pane">
+    <div class="panel">
+      <div class="panel-title">핵심 투자 지표</div>
+      <div class="stats-grid" id="fundKeyStats">
+        <div class="stat-card"><div class="stat-label">로딩 중</div><div class="stat-value">—</div></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">분기별 실적 (매출 · 영업이익 · 순이익)</div>
+      <div class="chart-wrap-lg"><canvas id="financialsChart"></canvas></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">내부자 · 기관 매수/매도 내역</div>
+      <div class="insider-summary" id="insiderSummary"></div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>날짜</th><th>거래자</th><th>구분</th>
+              <th>주식수</th><th>단가</th><th>거래금액</th>
+            </tr>
+          </thead>
+          <tbody id="insiderTableBody">
+            <tr><td colspan="6" style="text-align:center;color:#6b7a8d">데이터 로딩 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════
+       TAB 4 — 거시 환경
+  ════════════════════════════════════════════════════════════ -->
+  <div id="tab-macro" class="tab-pane">
+    <div class="panel">
+      <div class="panel-title">주요 거시 지표</div>
+      <div class="macro-grid" id="macroCards"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">추가 반도체 섹터 지표</div>
+      <div class="macro-extra-grid" id="macroExtras"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">원/달러 환율 추이 (최근 7개월)</div>
+      <div class="chart-wrap"><canvas id="exchangeChart"></canvas></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">거시 환경 종합 평가</div>
+      <div id="macroAssessment"></div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════
+       TAB 5 — 커뮤니티
+  ════════════════════════════════════════════════════════════ -->
+  <div id="tab-community" class="tab-pane">
+    <div class="panel">
+      <div class="panel-title">종합 투자 심리 지수</div>
+      <div class="comm-top">
+        <div id="sentimentGauge"></div>
+        <div>
+          <div class="section-label" style="margin-bottom:12px">플랫폼별 감성 점수</div>
+          <div id="platformSentiment"></div>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">주요 키워드 클라우드</div>
+      <div class="word-cloud" id="wordCloud"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">최근 커뮤니티 의견</div>
+      <div id="recentComments"></div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════
+       TAB 6 — 뉴스
+  ════════════════════════════════════════════════════════════ -->
+  <div id="tab-news" class="tab-pane">
+    <div class="panel">
+      <div class="panel-title">최신 뉴스 감성 요약</div>
+      <div class="news-sentiment-summary" id="newsSentimentSummary">분석 중...</div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">삼성전자 최신 뉴스</div>
+      <div id="newsContainer">
+        <div style="color:#6b7a8d;text-align:center;padding:40px">📰 뉴스 로딩 중...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════
+       TAB 7 — 매수/매도 의견
+  ════════════════════════════════════════════════════════════ -->
+  <div id="tab-signal" class="tab-pane">
+    <div class="signal-hero">
+      <div id="signalBadge">분석 중...</div>
+      <div class="signal-score-wrap">
+        <span class="signal-score-label">종합 점수</span>
+        <span id="signalScore">—</span>
+        <span class="signal-score-label">/ ±10</span>
+      </div>
+      <div class="score-bar-track">
+        <div id="signalBar" style="width:50%"></div>
+      </div>
+      <div id="signalRecommendation" style="margin-top:16px"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">분석 축별 점수 분해</div>
+      <div id="axisBreakdown"></div>
+    </div>
+    <div id="signalDisclaimer"></div>
+  </div>
+
+</div><!-- /.app-wrapper -->
+
+<!-- ── Scripts ────────────────────────────────────────────────── -->
+<script src="js/data.js"></script>
+<script src="js/signal.js"></script>
+<script src="js/chart.js"></script>
+<script src="js/technical.js"></script>
+<script src="js/fundamental.js"></script>
+<script src="js/macro.js"></script>
+<script src="js/community.js"></script>
+<script src="js/news.js"></script>
+<script src="js/app.js"></script>
+
+</body>
+</html>
