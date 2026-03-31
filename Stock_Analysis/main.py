@@ -202,6 +202,7 @@ def run_analysis(force_mock: bool = False) -> dict:
         "macro":       ma_details,
         "sentiment":   sa_details,
     }
+    result["insider_trades"] = insider
 
     return result, model, dc_instance
 
@@ -242,7 +243,9 @@ def main():
     if args.json:
         # _details 항목 제외하고 저장 (깔끔한 출력)
         out = {k: v for k, v in result.items() if k != "_details"}
-        filepath = model.to_json("analysis_result.json")
+        filepath = "analysis_result.json"
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(out, f, ensure_ascii=False, indent=2)
         print(_c(f"\n📄 JSON 저장 완료: {filepath}", "cyan"))
         print(json.dumps(out, ensure_ascii=False, indent=2))
 

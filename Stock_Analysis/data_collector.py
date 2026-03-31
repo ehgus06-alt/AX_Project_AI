@@ -258,8 +258,8 @@ class DataCollector:
     # ─────────────────────────────────────────────────────────────
     def get_insider_trades(self) -> list[dict]:
         """
-        DART API 대신 네이버 금융의 '외국인/기관 순매매' 동향을 내부자/주도세력 매매로 간주하여 수집합니다.
-        (사용자 요청에 따라 DART 데이터가 간헐적으로 비어보이는 현상을 대체)
+        DART API를 사용하여 실제 내부자(임원 및 주요주주) 매매 내역을 수집합니다.
+        (사용자 지시에 따라 DART API 원복)
 
         Returns:
             list[dict] — 각 항목: {date, name, type('buy'/'sell'), shares, value}
@@ -269,51 +269,83 @@ class DataCollector:
 
         trades = []
         try:
-            # 네이버 금융 종목별 투자자(외국인/기관) 매매동향 페이지 스크래핑
-            url = f"https://finance.naver.com/item/frgn.naver?code={self.ticker_krx}"
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
-            r = requests.get(url, timeout=5, headers=headers)
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(r.text, "html.parser")
-            rows = soup.select("table.type2 tr[onmouseover]")
+            from config import DART_API_KEY
+            if not DART_API_KEY or len(DART_API_KEY) < 20:
+                print("[경고] 유효한 DART_API_KEY가 없습니다.")
+                return trades
+
+            # 삼성전자 고유번호: 00126380
+            url = "https://opendart.fss.or.kr/api/elestock.json"
+            params = {
+                "crtfc_key": DART_API_KEY,
+                "corp_code": "00126380", # 삼성전자 고유번호
+            }
+            res = requests.get(url, params=params, timeout=5)
+            data = res.json()
             
-            # 현재가 가져오기 (매매대금 추산용)
-            price = 60000
-            if "price" in self._cache and not self._cache["price"].empty:
-                val = self._cache["price"]["Close"].iloc[-1]
-                price = float(val) if hasattr(val, '__float__') else 60000
-            elif "fundamentals" in self._cache and "current_price" in self._cache["fundamentals"]:
-                price = self._cache["fundamentals"]["current_price"]
-                
-            # 최근 10일치 데이터를 순회하며 거래 내역 생성 (UI에 풍부하게 표시하기 위함)
-            for row in rows[:10]:
-                cols = row.select("td")
-                if len(cols) >= 7:
-                    date_str = cols[0].text.strip().replace(".", "-")
+            if data.get("status") == "000":
+                import datetime
+                current_year = str(datetime.date.today().year)
+                # DART API 결과는 과거순이므로 최신 데이터부터 보기 위해 뒤집음
+                # 또한 '이번년도' 내부자 매수매도만 반영
+                for item in reversed(data.get("list", [])):
+                    if len(trades) >= 20:
+                        break
+                    
+                    date_str = item.get("rcept_dt", "")
+                    if not date_str.startswith(current_year):
+                        continue
+
+                    if len(date_str) == 8:
+                        date_str = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
+                    
+                    rep_name = item.get("repror", "알수없음")
+                    
+                    # 증감 수량 (양수면 매수, 음수면 매도)
                     try:
-                        i_net_shares = int(cols[5].text.replace(",", ""))
-                        f_net_shares = int(cols[6].text.replace(",", ""))
+                        # 보통 부호가 앞이나 수량 자체에 있을 수 있지만, 
+                        # DART API 데이터 상 보유수량 변화가 직관적이지 않을 수 있음.
+                        # 증감 내역을 나타내는 sp_stock_lmp_irds_cnt
+                        shares_change_str = item.get("sp_stock_lmp_irds_cnt", "0").replace(",", "")
+                        # sec_choise_sttus(보고사유)로 매수/매도 판별이 더 정확할 수 있으나 임시 판별
+                        status = item.get("secu_choise_sttus", "")
+                        shares_change = int(shares_change_str)
                         
-                        if i_net_shares != 0:
-                            trades.append({
-                                "date": date_str,
-                                "name": "기관계",
-                                "type": "buy" if i_net_shares > 0 else "sell",
-                                "shares": abs(i_net_shares),
-                                "value": abs(i_net_shares) * price
-                            })
-                        if f_net_shares != 0:
-                            trades.append({
-                                "date": date_str,
-                                "name": "외국인",
-                                "type": "buy" if f_net_shares > 0 else "sell",
-                                "shares": abs(f_net_shares),
-                                "value": abs(f_net_shares) * price
-                            })
-                    except Exception: 
-                        pass
+                        trade_type = "buy"
+                        if shares_change < 0 or "매도" in status or "감소" in status:
+                            trade_type = "sell"
+                        elif "매수" in status or "증가" in status:
+                            trade_type = "buy"
+                        else:
+                            trade_type = "buy" if shares_change > 0 else "sell"
+                            
+                        # 0주 변동은 무시
+                        if shares_change == 0 and ("매도" not in status and "매수" not in status):
+                            continue
+                            
+                    except:
+                        continue
+
+                    # 대략적인 금액 추산 (현재가 기준)
+                    price = 60000
+                    if "price" in self._cache and not self._cache["price"].empty:
+                        val = self._cache["price"]["Close"].iloc[-1]
+                        price = float(val) if hasattr(val, '__float__') else 60000
+                    elif "fundamentals" in self._cache and "current_price" in self._cache["fundamentals"]:
+                        price = self._cache["fundamentals"]["current_price"]
+
+                    trades.append({
+                        "date": date_str,
+                        "name": rep_name,
+                        "type": trade_type,
+                        "shares": abs(shares_change),
+                        "value": abs(shares_change) * price
+                    })
+            else:
+                print(f"[경고] DART API 호출 실패: {data.get('message')}")
+                
         except Exception as e:
-            print(f"[경고] 기관/외국인 대체 내부자 거래 수집 실패: {e}")
+            print(f"[경고] 실제 내부자 거래(DART) 수집 실패: {e}")
 
         self._cache["insider"] = trades
         return trades
@@ -420,12 +452,13 @@ class DataCollector:
             # 메인 페이지의 종목 뉴스 목록
             links = soup.select("div.sub_section.news_section ul li a")
             
-            related_keywords = ["삼성", "전자", "반도체", "HBM", "파운드리", "코스피", "증시", "외인", "기관", "매수", "매도", "실적"]
+            # '삼성'이나 '전자' 등 종목과 직접 관련된 키워드만 엄격하게 필터링
+            required_keywords = ["삼성", "전자", "갤럭시"]
             
             for a in links:
                 text = a.get_text(strip=True)
-                # 무관한 기사 필터링 (최소한의 연관 키워드가 있는지 확인)
-                if text and any(kw in text for kw in related_keywords):
+                # 무관한 기사 필터링 (반드시 삼성전자에 관련된 키워드가 있어야 함)
+                if text and any(kw in text for kw in required_keywords):
                     if text not in headlines: # 중복 방지
                         headlines.append(text)
                 

@@ -324,7 +324,16 @@ async function fetchStockAnalysis() {
     "financial": 1.58,
     "macro": 0.276,
     "sentiment": -0.4065
-  }
+  },
+  "insider_trades": [
+    {
+      "date": "2026-03-31",
+      "name": "홍길동",
+      "type": "buy",
+      "shares": 500,
+      "value": 30000000.0
+    }
+  ]
 }
 ```
 
