@@ -185,3 +185,7 @@ SIGNAL_LABELS = {
 # ──────────────────────────────────────────────────────────────────
 OUTPUT_JSON_PATH = "analysis_result.json"   # JSON 저장 경로
 VERBOSE = True                               # 상세 출력 여부
+
+# Spring 백엔드 전송 설정
+SEND_TO_SPRING = True                                            # 매번 자동으로 보낼지 여부 (True/False)
+SPRING_BACKEND_URL = "43.201.9.109:8080/api" # 자신이 구축한 Spring API 주소로 변경하세요

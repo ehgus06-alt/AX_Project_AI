@@ -130,6 +130,7 @@ class DataCollector:
             url = f"https://finance.naver.com/item/main.naver?code={self.ticker_krx}"
             r = requests.get(url, timeout=5, headers={"User-Agent": "Mozilla/5.0"})
             from bs4 import BeautifulSoup
+            r.encoding = 'utf-8'
             soup = BeautifulSoup(r.text, "html.parser")
 
             def get_val(selector, default=float("nan")):
@@ -447,23 +448,35 @@ class DataCollector:
             r = requests.get(url, timeout=5, headers=headers)
             
             from bs4 import BeautifulSoup
+            r.encoding = 'utf-8'
             soup = BeautifulSoup(r.text, "html.parser")
             
             # 메인 페이지의 종목 뉴스 목록
             links = soup.select("div.sub_section.news_section ul li a")
             
-            # '삼성'이나 '전자' 등 종목과 직접 관련된 키워드만 엄격하게 필터링
-            required_keywords = ["삼성", "전자", "갤럭시"]
+            # '삼성'이나 '전자' 등 종목과 직접 관련된 키워드 및 관련 테마 필터링
+            required_keywords = ["삼성", "전자", "갤럭시", "반도체", "HBM", "코스피", "증시", "주가"]
             
             for a in links:
                 text = a.get_text(strip=True)
-                # 무관한 기사 필터링 (반드시 삼성전자에 관련된 키워드가 있어야 함)
+                # 무관한 기사 필터링 (반드시 관련 테마 키워드가 있어야 함)
                 if text and any(kw in text for kw in required_keywords):
                     if text not in headlines: # 중복 방지
                         headlines.append(text)
                 
                 if len(headlines) >= n:
                     break
+            
+            # 만약 키워드 필터링 때문에 뉴스가 하나도 수집되지 않았다면 (최근 기사 제목에 삼성/반도체가 생략된 경우)
+            # 필터링 없이 모두 가져오는 것으로 폴백(Fallback)
+            if not headlines:
+                for a in links:
+                    text = a.get_text(strip=True)
+                    if text and text not in headlines:
+                        headlines.append(text)
+                    if len(headlines) >= n:
+                        break
+
         except Exception as e:
             print(f"[경고] 네이버 종목 뉴스 스크래핑 실패: {e}")
 
@@ -472,6 +485,50 @@ class DataCollector:
 
         self._cache["news"] = headlines
         return headlines
+
+    # ─────────────────────────────────────────────────────────────
+    # 5.5 네이버 종목토론방 수집 (커뮤니티 감성 분석용)
+    # ─────────────────────────────────────────────────────────────
+    def get_naver_board_posts(self, n: int = 50) -> list[str]:
+        """
+        네이버 금융 종목토론방의 최신 게시글 제목을 수집합니다.
+        
+        Returns:
+            list[str] — 최근 게시글 제목 목록
+        """
+        if "board_posts" in self._cache:
+            return self._cache["board_posts"]
+
+        posts = []
+        try:
+            headers = {"User-Agent": "Mozilla/5.0"}
+            page = 1
+            while len(posts) < n and page <= 5: # 최대 5페이지 탐색
+                url = f"https://finance.naver.com/item/board.naver?code={self.ticker_krx}&page={page}"
+                res = requests.get(url, timeout=5, headers=headers)
+                
+                from bs4 import BeautifulSoup
+                res.encoding = 'utf-8'
+                soup = BeautifulSoup(res.text, "html.parser")
+                
+                for tr in soup.select("table.type2 tbody tr"):
+                    title_td = tr.select_one("td.title a")
+                    if title_td:
+                        title = title_td.get_text(strip=True)
+                        if title and title not in posts:
+                            posts.append(title)
+                    if len(posts) >= n:
+                        break
+                page += 1
+                
+        except Exception as e:
+            print(f"[경고] 네이버 종목토론방 스크래핑 실패: {e}")
+
+        if not posts:
+            print("[경고] 네이버 종목토론방 데이터 수집 실패")
+
+        self._cache["board_posts"] = posts
+        return posts
 
     # ─────────────────────────────────────────────────────────────
     # 6. 외국인/기관 수급 데이터
@@ -500,8 +557,8 @@ class DataCollector:
                             result["foreign_net_5d"] = float(df[col].tail(5).sum())
                         if "기관" in col or "Institution" in col.title():
                             result["inst_net_5d"] = float(df[col].tail(5).sum())
-            except Exception as e:
-                print(f"[경고] 수급 데이터 수집 실패: {e}")
+            except Exception:
+                pass # 네이버 금융(fallback)으로 우회하므로 경고 생략
 
         if not result or "foreign_net_5d" not in result:
             # FinanceDataReader 실패 시 네이버 금융 조회 (종목 투자자별 매매동향)
@@ -509,6 +566,7 @@ class DataCollector:
                 url = f"https://finance.naver.com/item/frgn.naver?code={self.ticker_krx}"
                 r = requests.get(url, timeout=5, headers={"User-Agent": "Mozilla/5.0"})
                 from bs4 import BeautifulSoup
+                r.encoding = 'utf-8'
                 soup = BeautifulSoup(r.text, "html.parser")
                 rows = soup.select("table.type2 tr[onmouseover]")
                 
@@ -544,9 +602,9 @@ class DataCollector:
     # ─────────────────────────────────────────────────────────────
     # 7. 엑셀 내보내기 (Excel Export)
     # ─────────────────────────────────────────────────────────────
-    def export_to_excel(self, filepath: str = "samsung_stock_data.xlsx"):
+    def export_to_excel(self, filepath: str = "samsung_stock_data.xlsx", analysis_result: dict = None):
         """
-        수집되어 캐시된 모든 데이터를 하나의 엑셀 파일(여러 시트)로 저장합니다.
+        수집되어 캐시된 모든 데이터 및 분석 결과를 하나의 엑셀 파일(여러 시트)로 저장합니다.
         """
         print(f"\n💾 엑셀 저장 준비 중... ({filepath})")
         
@@ -600,6 +658,28 @@ class DataCollector:
                 if "flow" in self._cache and self._cache["flow"]:
                     df_flow = pd.DataFrame(list(self._cache["flow"].items()), columns=["Indicator", "Value(KRW)"])
                     df_flow.to_excel(writer, sheet_name="Investor_Flow", index=False)
+                    
+                # 10. 종목토론방 (board_posts)
+                if "board_posts" in self._cache and self._cache["board_posts"]:
+                    df_board = pd.DataFrame(self._cache["board_posts"], columns=["게시글_제목"])
+                    df_board.to_excel(writer, sheet_name="종목토론방_최신글", index=False)
+
+                # 11. 분석 상세 결과 (analysis_result)
+                if analysis_result and "_details" in analysis_result:
+                    summary_data = []
+                    details = analysis_result["_details"]
+                    # 기술적 분석 추가
+                    if "technical" in details:
+                        for k, v in details["technical"].items():
+                            summary_data.append({"Category": "기술적 분석", "Indicator": k, "Result": v})
+                    # 감성 분석 추가
+                    if "sentiment" in details:
+                        for k, v in details["sentiment"].items():
+                            summary_data.append({"Category": "커뮤니티 감성", "Indicator": k, "Result": v})
+                    
+                    if summary_data:
+                        df_summary = pd.DataFrame(summary_data)
+                        df_summary.to_excel(writer, sheet_name="AI_분석결과", index=False)
                     
             print(f"  ✓ 엑셀 원본 데이터 내보내기 완료: {filepath}")
             

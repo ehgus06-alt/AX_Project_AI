@@ -71,7 +71,7 @@ python api.py
   ├─ FundamentalAnalyzer → PER, PBR, ROE, 배당률, 내부자매매, 수급
   ├─ FinancialAnalyzer   → 영업이익추세, 매출성장, 부채비율, FCF, 영업이익률
   ├─ MacroAnalyzer       → 환율, SOX, 금리, 반도체재고, AI수요, 중국PMI
-  └─ SentimentAnalyzer   → 뉴스헤드라인 키워드, 외국인·기관 수급
+  └─ SentimentAnalyzer   → 뉴스/토론방 딥러닝 감성, 외국인·기관 수급
        ↓
 [SignalModel]
   가중 앙상블 합산 → 신뢰도(확신도) 계산
@@ -127,6 +127,7 @@ WEIGHTS = {
 | `get_insider_trades()`   | 내부자 매수/매도 내역        | **금융감독원 DART OPEN API**   |
 | `get_macro_data()`       | 환율, SOX, 금리, KOSPI       | yfinance                       |
 | `get_news_headlines()`   | 최신 뉴스 헤드라인 주소/제목 | **네이버 금융 스크래핑**       |
+| `get_naver_board_posts()`| 네이버 종목토론방 최신 글 제목 | **네이버 금융 종목토론방**     |
 | `get_investor_flow()`    | 외국인·기관 5일 순매수       | FinanceDataReader지연시 크롤링 |
 
 ---
@@ -199,10 +200,10 @@ WEIGHTS = {
 
 단순 단어 매칭 방식을 완전히 넘어서, 서울대학교가 배포한 한국어 금융 문맥 분석 모델 **KR-FinBERT-SC** 딥러닝 파이프라인을 사용합니다.
 
-**뉴스 감성 딥러닝 분석 (55%)**
+**뉴스/커뮤니티 감성 딥러닝 분석 (55%)**
 
-- 네이버 종목 뉴스를 실시간으로 스크래핑한 뒤 PyTorch `transformers` 엔진에 주입합니다.
-- 복잡한 뉘앙스(예: "성장률 둔화 우려 속에 선방")를 가진 헤드라인의 **긍정/부정/중립 확률**을 AI가 0.0~1.0 체계로 직접 추론하고 환산합니다.
+- 네이버 종목 뉴스와 **네이버 금융 종목토론방(커뮤니티 반응)**을 실시간으로 수집하여 PyTorch `transformers` 핵심 모델에 주입합니다.
+- 복잡한 뉘앙스를 가진 헤드라인 및 커뮤니티 게시글의 **긍정/부정/중립 확률**을 AI가 통합 분석합니다.
 
 **외국인·기관 수급 (45%)**
 
@@ -339,7 +340,8 @@ async function fetchStockAnalysis() {
 
 ### 방식 2. 실무 데이터 열람 기능 (Excel 연동)
 
-사용자나 운영자가 AI가 판단한 "근거 원본"을 보고 싶어할 땐, `--excel` 인자로 생성된 `samsung_stock_data_YYYYMMDD.xlsx` 파일을 백엔드에서 다운로드 응답(Response)으로 스트리밍해 주면 됩니다. 이 엑셀 파일에는 실시간 스크래핑된 수급, 내부자 매매결과, 차트값, 재무제표가 시트별로 분리되어 있습니다.
+사용자나 운영자가 AI가 판단한 "근거 원본"을 보고 싶어할 땐, `--excel` 인자로 생성된 `samsung_stock_data_YYYYMMDD.xlsx` 파일을 백엔드에서 다운로드 응답(Response)으로 스트리밍해 주면 됩니다. 
+이 엑셀 파일에는 실시간 스크래핑된 수급, 내부자 매매결과, 차트값, 재무제표가 시트별로 분리되어 제공되며, 새롭게 **네이버 종목토론방 글(`Board_Posts`)** 및 **기술적/감성 분석 세부 성과표(`Analysis_Results`)**가 포함되어 있습니다. 특히 대표적인 기술적 분석 지표인 **RSI, MACD, 볼린저 밴드 현황을 엑셀로 한 눈에 확인**할 수 있으며 종목 토론방의 민심 지표도 쉽게 열람할 수 있습니다.
 
 ---
 

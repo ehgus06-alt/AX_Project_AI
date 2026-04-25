@@ -42,9 +42,10 @@ class SentimentAnalyzer:
         info  = sa.details()
     """
 
-    def __init__(self, headlines: list[str], investor_flow: dict):
+    def __init__(self, headlines: list[str], investor_flow: dict, board_posts: list[str] = None):
         self.headlines = headlines
         self.flow      = investor_flow
+        self.board_posts = board_posts or []
         self._result: dict = {}
 
     def _analyze_headlines(self) -> dict:
@@ -57,7 +58,9 @@ class SentimentAnalyzer:
         neu_count = 0
         net_score = 0.0
 
-        if self.headlines and len(self.headlines) >= SENTIMENT["min_articles_for_signal"]:
+        all_texts = self.headlines + self.board_posts
+
+        if all_texts and len(all_texts) >= SENTIMENT["min_articles_for_signal"]:
             try:
                 from transformers import pipeline
                 import torch
@@ -66,7 +69,11 @@ class SentimentAnalyzer:
                 
                 # 서울대 금융 특화 언어모델 로드
                 classifier = pipeline("sentiment-analysis", model="snunlp/KR-FinBERT-SC", device=device)
-                results = classifier(self.headlines)
+                
+                # 배치 처리를 위해 청크 분할 시도 (OOM 방지)
+                results = []
+                for i in range(0, len(all_texts), 32):
+                    results.extend(classifier(all_texts[i:i+32]))
                 
                 for idx, res in enumerate(results):
                     label = res['label']
@@ -86,9 +93,11 @@ class SentimentAnalyzer:
             except Exception as e:
                 print(f"    [경고] KR-FinBERT 실행 오류: {e}")
 
-        total = len(self.headlines)
+        total = len(all_texts)
         self._result = {
-            "total_articles":  total,
+            "total_articles":  len(self.headlines),
+            "total_posts":     len(self.board_posts),
+            "total_texts":     total,
             "pos_articles":    pos_count,
             "neg_articles":    neg_count,
             "neu_articles":    neu_count,
@@ -101,11 +110,15 @@ class SentimentAnalyzer:
         """뉴스 감성 딥러닝 점수화 (-10 ~ +10)."""
         r = self._analyze_headlines()
 
-        if r["total_articles"] < SENTIMENT["min_articles_for_signal"]:
-            return 0.0   # 기사 부족 → 중립
+    def _score_headlines(self) -> float:
+        """뉴스 및 커뮤니티 감성 딥러닝 점수화 (-10 ~ +10)."""
+        r = self._analyze_headlines()
 
-        total = r["total_articles"]
-        # 기사수 대비 평균 딥러닝 환산 점수
+        if r["total_texts"] < SENTIMENT["min_articles_for_signal"]:
+            return 0.0   # 기사/게시글 부족 → 중립
+
+        total = r["total_texts"]
+        # 전체 분석 텍스트 대비 평균 딥러닝 환산 점수
         per_article = r["net_score_raw"] / total
         
         # -10 ~ +10 매핑
@@ -144,12 +157,14 @@ class SentimentAnalyzer:
     def details(self) -> dict:
         """감성 분석 상세 결과를 반환합니다."""
         r     = self._analyze_headlines()
-        total = r["total_articles"]
+        total = r["total_texts"]
         return {
-            "총_기사수":         total,
-            "긍정_기사수":       r["pos_articles"],
-            "부정_기사수":       r["neg_articles"],
-            "중립_기사수":       r["neu_articles"],
+            "뉴스_기사수":         r["total_articles"],
+            "커뮤니티_게시글수":     r["total_posts"],
+            "총_텍스트수":         total,
+            "긍정_비정제수":       r["pos_articles"],
+            "부정_비정제수":       r["neg_articles"],
+            "중립_비정제수":       r["neu_articles"],
             "긍정_비율":         f"{r['sentiment_ratio']*100:.0f}%" if total > 0 else "N/A",
             "외국인_5일순매수":  f"{self.flow.get('foreign_net_5d', 0)/1e8:.0f}억원",
             "기관_5일순매수":    f"{self.flow.get('inst_net_5d', 0)/1e8:.0f}억원",

@@ -7,7 +7,8 @@ main.py — 삼성전자 AI 주식 분석 모델 실행 진입점
   python main.py --json           # JSON 파일로도 저장
   python main.py --verbose        # 모든 세부 지표 출력
   python main.py --mock           # 실제 API 없이 모의 데이터로만 실행 (테스트)
-
+ma_init
+    colorama_init(autoreset=True)
 [전체 분석 파이프라인]
   DataCollector → 5종 Analyzer → SignalModel → 결과 출력
 """
@@ -17,9 +18,11 @@ import json
 import argparse
 import datetime
 
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+
 try:
-    from colorama import Fore, Style, init as colorama_init
-    colorama_init(autoreset=True)
+    from colorama import Fore, Style, init as colora
     _COLOR = True
 except ImportError:
     _COLOR = False
@@ -138,9 +141,10 @@ def run_analysis(force_mock: bool = False) -> dict:
     macro_data   = dc.get_macro_data()
     headlines    = dc.get_news_headlines()
     flow_data    = dc.get_investor_flow()
+    board_posts  = dc.get_naver_board_posts()
 
     print(_c(f"  ✓ 주가 데이터: {len(price_df)}거래일", "green"))
-    print(_c(f"  ✓ 뉴스 헤드라인: {len(headlines)}건", "green"))
+    print(_c(f"  ✓ 뉴스 기사: {len(headlines)}건 | 토론방 게시글: {len(board_posts)}건", "green"))
 
     # 엑셀 내보내기 대상 저장을 위해 dc 객체를 result에 잠시 담아둠
     dc_instance = dc
@@ -176,7 +180,7 @@ def run_analysis(force_mock: bool = False) -> dict:
     # ── (5) 커뮤니티 감성 분석 ──────────────────────────────
     print(_c("\n💬 커뮤니티 감성 분석 중...", "cyan"))
     from sentiment_analyzer import SentimentAnalyzer
-    sa         = SentimentAnalyzer(headlines, flow_data)
+    sa         = SentimentAnalyzer(headlines, flow_data, board_posts)
     sa_score   = sa.score()
     sa_details = sa.details()
     print(_c(f"  ✓ 감성 점수: {sa_score:+.2f}", "green"))
@@ -215,6 +219,7 @@ def main():
     parser.add_argument("--excel",   action="store_true", help="수집된 원본 데이터를 엑셀로 저장")
     parser.add_argument("--verbose", action="store_true", help="세부 지표 모두 출력")
     parser.add_argument("--mock",    action="store_true", help="모의 데이터로 실행 (테스트)")
+    parser.add_argument("--endpoint",type=str,            help="결과 JSON을 전송할 Spring 백엔드 API URL")
     args = parser.parse_args()
 
     print_header()
@@ -249,11 +254,23 @@ def main():
         print(_c(f"\n📄 JSON 저장 완료: {filepath}", "cyan"))
         print(json.dumps(out, ensure_ascii=False, indent=2))
 
+    # JSON 전송 (--endpoint)
+    if args.endpoint:
+        import requests
+        out = {k: v for k, v in result.items() if k != "_details"}
+        try:
+            print(_c(f"\n🌐 Spring 백엔드({args.endpoint})로 데이터 전송 중...", "cyan"))
+            response = requests.post(args.endpoint, json=out, timeout=10)
+            response.raise_for_status()
+            print(_c(f"  ✓ 전송 성공: HTTP {response.status_code}", "green"))
+        except requests.exceptions.RequestException as e:
+            print(_c(f"  [오류] Spring 백엔드 전송 실패: {e}", "red"))
+
     # 엑셀 저장 (--excel)
     if args.excel:
         date_str = datetime.datetime.now().strftime("%Y%m%d")
         excel_filepath = f"samsung_stock_data_{date_str}.xlsx"
-        dc_instance.export_to_excel(excel_filepath)
+        dc_instance.export_to_excel(excel_filepath, analysis_result=result)
 
     print(_c("\n" + "═" * 60, "cyan"))
     print(_c("  ⚠️  본 분석은 참고용이며, 투자 손익의 책임은 투자자 본인에게 있습니다.", "yellow"))
